@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>The Midnight Bunny's 22nd Quest</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        
+        body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: 'Press Start 2P', cursive; overflow: hidden; touch-action: none; }
+        canvas { display: block; image-rendering: pixelated; }
+
+        #startScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 30; text-align: center; }
+        #startBtn { margin-top: 30px; padding: 15px 20px; background: #e056fd; color: white; border: 2px solid #fff; border-radius: 8px; font-family: 'Press Start 2P', cursive; font-size: 12px; cursor: pointer; box-shadow: 0 0 15px #e056fd; }
+
+        #dialogBox { position: absolute; bottom: 12%; left: 50%; transform: translateX(-50%); width: 85%; max-width: 500px; background: rgba(10, 10, 20, 0.95); border: 4px solid #e056fd; border-radius: 8px; padding: 20px; display: none; text-align: center; line-height: 1.8; z-index: 20; cursor: pointer; box-shadow: 0 0 20px #e056fd; }
+        #dialogText { font-size: 11px; color: #f5f6fa; margin-bottom: 20px; }
+        #dialogInstruction { font-size: 9px; color: #fbc531; animation: blink 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        #mobileControls { position: fixed; bottom: 30px; right: 30px; display: grid; grid-template-columns: 60px 60px 60px; grid-template-rows: 60px 60px 60px; gap: 5px; z-index: 10; }
+        .btn-dir { background: rgba(44, 44, 84, 0.6); border: 2px solid #e056fd; border-radius: 50%; color: white; font-size: 24px; display: flex; align-items: center; justify-content: center; user-select: none; box-shadow: 0 0 10px rgba(224, 86, 253, 0.4); }
+        .btn-dir:active { background: rgba(224, 86, 253, 0.9); transform: scale(0.95); }
+        #btnUp { grid-column: 2; grid-row: 1; } #btnLeft { grid-column: 1; grid-row: 2; } #btnRight { grid-column: 3; grid-row: 2; } #btnDown { grid-column: 2; grid-row: 3; }
+        @media (min-width: 768px) { #mobileControls { display: none; } }
+    </style>
+</head>
+<body>
+
+    <div id="startScreen">
+        <h2 style="font-size: 14px; color: #e056fd; line-height: 1.5;">The Midnight Bunny's<br><br>22nd Quest</h2>
+        <button id="startBtn">MULAI PERJALANAN</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="dialogBox">
+        <div id="dialogText"></div>
+        <div id="dialogInstruction">[TAP / KLIK UNTUK LANJUT]</div>
+    </div>
+
+    <div id="mobileControls">
+        <div class="btn-dir" id="btnUp">▲</div>
+        <div class="btn-dir" id="btnLeft">◀</div>
+        <div class="btn-dir" id="btnRight">▶</div>
+        <div class="btn-dir" id="btnDown">▼</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const dialogBox = document.getElementById("dialogBox");
+        const dialogText = document.getElementById("dialogText");
+        const startScreen = document.getElementById("startScreen");
+        const startBtn = document.getElementById("startBtn");
+
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        window.addEventListener('resize', resize); resize();
+
+        // --- SISTEM ASET LENGKAP ---
+        const assets = { images: {}, audio: {} };
+        function loadImage(name, src, fallbackColor) {
+            let img = new Image(); img.src = src;
+            assets.images[name] = { img: img, loaded: false, fallback: fallbackColor };
+            img.onload = () => assets.images[name].loaded = true;
+        }
+        function loadAudio(name, src) { assets.audio[name] = new Audio(src); }
+
+        loadImage("player_front", "player_front.png", "#e056fd");
+        loadImage("player_back", "player_back.png", "#e056fd");
+        loadImage("player_left", "player_left.png", "#e056fd");
+        loadImage("player_right", "player_right.png", "#e056fd");
+        loadImage("candle", "candle.png", "#fbc531");
+        loadImage("enemy", "enemy_bat.png", "#ff4757");
+        loadImage("cake", "cake.png", "#833471");
+        loadImage("wall", "wall.png", "#333");
+        loadImage("floor", "floor.png", "#1a1a2e");
+
+        loadAudio("collect", "sfx_collect.mp3");
+        loadAudio("hit", "sfx_hit.mp3");
+        loadAudio("laugh", "sfx_laugh.mp3");
+        loadAudio("bgm1", "bgm_phase1.mp3");
+        loadAudio("bgm2", "bgm_phase2.mp3");
+        loadAudio("bgm3", "bgm_phase3.mp3");
+        loadAudio("bgm_end", "bgm_birthday.mp3");
+
+        let currentBGM = null;
+        function playBGM(name) {
+            if (currentBGM) { currentBGM.pause(); currentBGM.currentTime = 0; }
+            if (assets.audio[name]) { currentBGM = assets.audio[name]; currentBGM.loop = true; currentBGM.play().catch(() => {}); }
+        }
+        function playSound(name) {
+            if (assets.audio[name]) { assets.audio[name].currentTime = 0; assets.audio[name].play().catch(() => {}); }
+        }
+
+        // --- PESAN DENGAN GAYA BAHASA VEX (TEAR-JERKER) ---
+        const messages = [
+            "Lilin 1: Dunia ini kadang terlalu berisik ya, cil. Mari mulai perjalanan ini pelan-pelan aja.",
+            "Lilin 2: Inget ga awal kita kenal? Cuma dari chatan random yang ga jelas, eh malah nyangkut sedeket ini.",
+            "Lilin 3: Di balik outfit mamba dan muka sinismu itu, gue tau ada una bocil yang hatinya soft banget.",
+            "Lilin 4: Buat semua tawa sarkas dan jokes aneh lo... jangan pernah ilang ya dari lo.",
+            "Lilin 5: Lilin kelima. Liat kan? Duniamu pelan-pelan mulai kerasa lebih hangat.",
+            "Lilin 6: Ada hari di mana lo ngerasa ga ada satupun yang ngertiin. Trust me, gue liat itu semua.",
+            "Lilin 7: Buat malem-malem di mana lo ngerasa useless, lilin ini buktiin pikiran lo itu salah besar.",
+            "Lilin 8: Sok kuat terus itu capek, cil. Gapapa kok kalo lo mau naruh perisai lo bentar aja di sini.",
+            "Lilin 9: Gue selalu kagum gimana lo bisa nyulap hal-hal yang nyakitin jadi kekuatan lo sendiri.",
+            "Lilin 10: Ngelewatin rasa kehilangan, sampe apesnya ditabrak... lo tuh gila, masih bisa-bisanya senyum lagi abis itu.",
+            "Lilin 11: Sisi gelap lo bukan aib buat disembunyiin. Itu yang bikin lo jadi una yang gue kenal.",
+            "Lilin 12: Liat semua yang udah lo lewatin, una bocil ini udah resmi jadi kelinci paling kuat yang pernah gue temuin.",
+            "Lilin 13: Lilin ini spesial buat hobi aneh lo: bisa-bisanya ditabrak orang random secara tiba-tiba.",
+            "Lilin 14: Dan pastinya buat momen paling epik... pas asyik yapping eh malah jatoh konyol di Roblox. Sumpah itu kocak!",
+            "Lilin 15: Makasih ya, udah selalu mau dengerin cerita-cerita gue yang kadang ga penting.",
+            "Lilin 16: Lo mungkin ga sadar, eksistensi lo tuh sering banget nyelamatin hari gue yang lagi hancur.",
+            "Lilin 17: Buat semua pesan larut malam dan deep talk random yang bikin waktu ga kerasa.",
+            "Lilin 18: Maaf ya kalo gue kadang ngeselin. Tapi sumpah, gue bersyukur banget lo tetep stay di sini.",
+            "Lilin 19: Masuk 22 tahun emang nakutin, dunia nyata emang keras. Tapi lo ga sendirian, cil.",
+            "Lilin 20: Gue bener-bener bangga ngeliat seberapa jauh lo sanggup bertahan sampe detik ini.",
+            "Lilin 21: Satu lilin terakhir. Tarik napas dalem-dalem, cil. Lo pantes buat dapet semua kebahagiaan di dunia ini.",
+            "Dari sekian banyak kegelapan di semesta... gue paling bersyukur bisa nemuin lo. Selamat ulang tahun yang ke-22, una bocil."
+        ];
+
+        let currentLevel = 1; let isDialog = true; let frameCount = 0; let currentDir = "player_front";
+        let showCredits = false; // Trigger untuk layar credit
+        
+        let player = { x: 0, y: 0, size: 40, speed: 6 }; 
+        let player2 = { x: 0, y: 0, size: 40, active: false }; 
+        let candle = { x: 0, y: 0, size: 50, active: true };
+        
+        let hazards = []; let walls = []; let items = []; let state = {};
+        let keys = {};
+
+        window.addEventListener("keydown", e => keys[e.code] = true);
+        window.addEventListener("keyup", e => keys[e.code] = false);
+
+        const setupTouch = (id, key, dirStr) => {
+            const btn = document.getElementById(id);
+            const press = (e) => { e.preventDefault(); keys[key] = true; currentDir = dirStr; };
+            const release = (e) => { e.preventDefault(); keys[key] = false; };
+            btn.addEventListener("touchstart", press); btn.addEventListener("touchend", release);
+            btn.addEventListener("mousedown", press); btn.addEventListener("mouseup", release);
+        };
+        setupTouch("btnUp", "ArrowUp", "player_back");
+        setupTouch("btnDown", "ArrowDown", "player_front");
+        setupTouch("btnLeft", "ArrowLeft", "player_left");
+        setupTouch("btnRight", "ArrowRight", "player_right");
+
+        startBtn.addEventListener("click", () => { startScreen.style.display = "none"; isDialog = false; playBGM("bgm1"); initLevel(); loop(); });
+
+        dialogBox.addEventListener("click", () => {
+            isDialog = false; dialogBox.style.display = "none";
+            
+            if(currentLevel === 5) playBGM("bgm2");
+            if(currentLevel === 15) playBGM("bgm3");
+            if(currentLevel === 21) { if(currentBGM) currentBGM.pause(); }
+            
+            if(currentLevel === 22) { 
+                if(state.cakeSpawned) {
+                    showCredits = true; // Munculkan Credit Scene
+                }
+                return; 
+            }
+            
+            currentLevel++;
+            if(currentLevel === 22) playBGM("bgm_end"); 
+            initLevel();
+        });
+
+        function showWin() {
+            isDialog = true; keys = {}; dialogText.innerText = messages[currentLevel - 1]; dialogBox.style.display = "block";
+            if(currentLevel === 13 || currentLevel === 14) playSound("laugh"); else playSound("collect");
+        }
+
+        function death() { playSound("hit"); initLevel(); }
+
+        function initLevel() {
+            player.x = canvas.width / 2 - 20; player.y = canvas.height - 120;
+            player.speed = 6; player2.active = false; currentDir = "player_back";
+            candle.active = true; candle.x = canvas.width / 2 - 25; candle.y = 80;
+            hazards = []; walls = []; items = []; state = {};
+
+            switch(currentLevel) {
+                case 1: 
+                    walls.push({x: 0, y: canvas.height/2 + 20, w: canvas.width/2 + 40, h: 60});
+                    walls.push({x: canvas.width/2 - 40, y: canvas.height/3, w: canvas.width, h: 60});
+                    break;
+                case 2: candle.active = false; state.caught = 0; break;
+                case 3: 
+                    walls.push({x: 0, y: canvas.height/2 + 30, w: canvas.width - 150, h: 60});
+                    walls.push({x: 150, y: canvas.height/3 - 20, w: canvas.width, h: 60}); 
+                    hazards.push({x: 50, y: canvas.height/2 - 40, s: 40, dx: 4, dy: 0, isEnemy: true});
+                    break;
+                case 4: candle.active = false; state.score = 0; items.push({x: 80, y: 120, w: 40, h: 40}, {x: canvas.width-120, y: 120, w: 40, h: 40}, {x: 80, y: canvas.height-180, w: 40, h: 40}); hazards.push({x: canvas.width/2, y: 180, s: 50, spd: 3, isEnemy: true}); break;
+                case 5: state.dir = 1; break;
+                case 6: candle.active = false; state.timer = 300; break;
+                case 7: candle.active = false; items.push({x: canvas.width*0.2, y: 220, w: 60, h: 60, real: false}, {x: canvas.width*0.5, y: 220, w: 60, h: 60, real: true}, {x: canvas.width*0.8, y: 220, w: 60, h: 60, real: false}); break;
+                case 8: state.isRed = false; state.timer = 100; break;
+                case 9: candle.active = false; items.push({x: canvas.width/2-35, y: canvas.height/2, w:70, h:70, isBlock: true, targetY: 100}); break;
+                case 10: hazards.push({x: 0, y: canvas.height/2 + 50, w: 150, h: 70, spd: 7, isCar: true}, {x: canvas.width, y: canvas.height/2 - 80, w: 150, h: 70, spd: -5, isCar: true}); break;
+                case 11: 
+                    walls.push({x: 0, y: 250, w: canvas.width, h: 200, isPit: true}); 
+                    items.push({x: 0, y: 250, w: 220, h: 200, spd: 3, isPlatform: true}); 
+                    break;
+                case 12: walls.push({x: canvas.width/2 - 80, y: 150, w: 160, h: 80, hp: 10}); break;
+                case 13: for(let i=0; i<5; i++) hazards.push({x: Math.random()*canvas.width, y: 120, s: 45, dx: 4, dy: 4, isEnemy: true}); break;
+                case 14: break;
+                case 15: candle.active = false; state.seq = [0,1,2]; state.step = 0; items.push({x: canvas.width*0.2, y: 250, w: 60, h: 60, c: "red"}, {x: canvas.width*0.5, y: 250, w: 60, h: 60, c: "green"}, {x: canvas.width*0.8, y: 250, w: 60, h: 60, c: "blue"}); break;
+                case 16: candle.x = Math.random() * (canvas.width - 100) + 50; candle.y = Math.random() * (canvas.height - 200) + 80; break;
+                case 17: 
+                    // REVISI LEVEL 17: SURVIVAL LARI DARI 3 HANTU CEPAT (PESAN LARUT MALAM)
+                    candle.active = false; state.timer = 300; 
+                    for(let i=0; i<3; i++) hazards.push({x: Math.random()*canvas.width, y: 80, s: 35, dx: 5, dy: 5, isEnemy: true});
+                    break;
+                case 18: walls.push({x: canvas.width/2 - 80, y: 150, w: 160, h: 40, breakable: true}); hazards.push({x: 50, y: 60, s:60, isTurret: true, cooldown: 80}); break;
+                case 19: player2.active = true; player2.x = canvas.width/2 - 20; player2.y = 100; items.push({x: 60, y: canvas.height/2, w: 60, h: 60, forP1: true}, {x: canvas.width-120, y: canvas.height/2, w: 60, h: 60, forP2: true}); candle.active = false; state.p1R = false; state.p2R = false; break;
+                case 20: 
+                    candle.active = false; state.timer = 500; 
+                    hazards.push({x: canvas.width/2 - 75, y: 40, w: 150, h: 150, isBoss: true}); 
+                    break;
+                case 21: 
+                    candle.active = true; candle.x = canvas.width/2 - 25; candle.y = 50;
+                    state.wind = false; state.windTimer = 100;
+                    walls.push({x: 20, y: canvas.height/2, w: 200, h: 80, isSafeZone: true});
+                    walls.push({x: canvas.width - 220, y: canvas.height/3 + 30, w: 200, h: 80, isSafeZone: true});
+                    break;
+                case 22: 
+                    candle.active = true;
+                    candle.x = canvas.width/2 - 25; candle.y = 50;
+                    state.cakeSpawned = false;
+                    walls.push({x: 0, y: 0, w: canvas.width/2 - 60, h: canvas.height, isPit: true});
+                    walls.push({x: canvas.width/2 + 60, y: 0, w: canvas.width, h: canvas.height, isPit: true});
+                    break;
+            }
+        }
+
+        function update() {
+            if (isDialog || showCredits) return;
+            frameCount++; let px = player.x, py = player.y;
+
+            if (keys["ArrowUp"]) { player.y -= player.speed; currentDir = "player_back"; }
+            if (keys["ArrowDown"]) { player.y += player.speed; currentDir = "player_front"; }
+            if (keys["ArrowLeft"]) { player.x -= player.speed; currentDir = "player_left"; }
+            if (keys["ArrowRight"]) { player.x += player.speed; currentDir = "player_right"; }
+
+            if (player2.active) {
+                if (keys["ArrowUp"]) player2.y += player.speed; if (keys["ArrowDown"]) player2.y -= player.speed;
+                if (keys["ArrowLeft"]) player2.x += player.speed; if (keys["ArrowRight"]) player2.x -= player.speed;
+            }
+
+            player.x = Math.max(0, Math.min(canvas.width - player.size, player.x));
+            player.y = Math.max(0, Math.min(canvas.height - player.size, player.y));
+
+            let onPlatform = false;
+            let currentPlatform = null;
+            items.forEach(it => {
+                if (it.isPlatform && (player.x + player.size/2) >= it.x && (player.x + player.size/2) <= (it.x + it.w) && (player.y + player.size) > it.y && player.y < (it.y + it.h)) {
+                    onPlatform = true; currentPlatform = it;
+                }
+            });
+
+            walls.forEach(w => {
+                if (!w.isSafe && !w.isSafeZone && player.x < w.x + w.w && player.x + player.size > w.x && player.y < w.y + w.h && player.y + player.size > w.y) {
+                    if (w.isPit || w.isLava) { if (!onPlatform) death(); }
+                    else if (w.hp) {
+                        if (frameCount % 12 === 0) w.hp--; 
+                        if (w.hp <= 0) w.x = -1000; player.x = px; player.y = py;
+                    } else if (!w.isPit) { player.x = px; player.y = py; }
+                }
+            });
+
+            switch(currentLevel) {
+                case 2:
+                    if(frameCount % 50 === 0) hazards.push({x: Math.random()*(canvas.width-40), y: -40, s: 40, isChat: true});
+                    hazards.forEach((h, i) => { h.y += 4;
+                        if(player.x < h.x+h.s && player.x+player.size > h.x && player.y < h.y+h.s && player.y+player.size > h.y) {
+                            state.caught++; hazards.splice(i, 1); if(state.caught >= 5) candle.active = true; }
+                    }); break;
+                case 3:
+                    hazards.forEach(h => {
+                        h.x += h.dx;
+                        if (h.x <= 0 || h.x >= canvas.width - h.s) h.dx *= -1;
+                        if (Math.hypot((player.x+20) - (h.x+20), (player.y+20) - (h.y+20)) < 35) death();
+                    }); break;
+                case 4:
+                    let en = hazards[0]; en.x += (player.x - en.x) * 0.02; en.y += (player.y - en.y) * 0.02;
+                    if(Math.hypot((player.x+20) - en.x, (player.y+20) - en.y) < 40) death();
+                    items.forEach((it, i) => { if(Math.hypot((player.x+20) - (it.x+20), (player.y+20) - (it.y+20)) < 45) { state.score++; items.splice(i,1); } });
+                    if(state.score >= 3) candle.active = true; break;
+                case 5: candle.x += 7 * state.dir; if(candle.x > canvas.width - 50 || candle.x < 10) state.dir *= -1; break;
+                case 6: state.timer--; if(frameCount % 25 === 0) hazards.push({x: -40, y: Math.random()*canvas.height, s: 30, dx: 6});
+                    hazards.forEach(h => { h.x += h.dx; if(Math.hypot((player.x+20) - h.x, (player.y+20) - h.y) < 35) death(); });
+                    if(state.timer <= 0) candle.active = true; break;
+                case 7: items.forEach(it => { if(Math.hypot((player.x+20) - (it.x+30), (player.y+20) - (it.y+30)) < 50) { if(it.real) showWin(); else death(); } }); break;
+                case 8: state.timer--; if(state.timer <= 0) { state.isRed = !state.isRed; state.timer = state.isRed ? 60 : 120; }
+                    if(state.isRed && (keys["ArrowUp"] || keys["ArrowDown"] || keys["ArrowLeft"] || keys["ArrowRight"])) death(); break;
+                case 9: let b = items[0]; if(Math.hypot((player.x+20) - (b.x+35), (player.y+20) - (b.y+35)) < 60) b.y -= 4; if(b.y <= b.targetY) candle.active = true; break;
+                case 10: hazards.forEach(h => { h.x += h.spd; if(h.spd > 0 && h.x > canvas.width) h.x = -h.w; if(h.spd < 0 && h.x < -h.w) h.x = canvas.width;
+                    if(player.x < h.x+h.w && player.x+player.size > h.x && player.y < h.y+h.h && player.y+player.size > h.y) death(); }); break;
+                case 11: 
+                    let plat = items[0]; plat.x += plat.spd; if(plat.x > canvas.width - plat.w || plat.x < 0) plat.spd *= -1;
+                    if (onPlatform && currentPlatform === plat) { player.x += plat.spd; } break;
+                case 13: hazards.forEach(h => { h.x += h.dx; h.y += h.dy; if(h.x <= 0 || h.x >= canvas.width-h.s) h.dx *= -1; if(h.y <= 0 || h.y >= canvas.height-h.s) h.dy *= -1;
+                    if(Math.hypot((player.x+20) - h.x, (player.y+20) - h.y) < 40) death(); }); break;
+                case 14: if(frameCount % 30 === 0) hazards.push({x: Math.random()*canvas.width, y: -80, s: 80, isRoblox: true});
+                    hazards.forEach(h => { h.y += 6; if(player.x < h.x+h.s && player.x+player.size > h.x && player.y < h.y+h.s && player.y+player.size > h.y) death(); }); break;
+                case 15: items.forEach((it, i) => { if(Math.hypot((player.x+20) - (it.x+30), (player.y+20) - (it.y+30)) < 50) { if(i === state.seq[state.step]) { state.step++; it.y = -100; if(state.step >= 3) candle.active = true; } else { death(); } } }); break;
+                
+                case 17: // LOGIKA SURVIVAL 3 HANTU LEVEL 17
+                    state.timer--;
+                    hazards.forEach(h => { 
+                        h.x += h.dx; h.y += h.dy; 
+                        if(h.x <= 0 || h.x >= canvas.width-h.s) h.dx *= -1; 
+                        if(h.y <= 0 || h.y >= canvas.height-h.s) h.dy *= -1;
+                        if(Math.hypot((player.x+20) - (h.x+17), (player.y+20) - (h.y+17)) < 35) death(); 
+                    }); 
+                    if(state.timer <= 0 && !candle.active) { hazards = []; candle.active = true; }
+                    break;
+
+                case 18: let tur = hazards[0]; tur.cooldown--; if(tur.cooldown <= 0) { hazards.push({x: tur.x+20, y: tur.y+20, s: 20, isBullet: true, dx: (player.x - tur.x)*0.06, dy: (player.y - tur.y)*0.06}); tur.cooldown = 80; }
+                    hazards.forEach((h, i) => { if(h.isBullet) { h.x += h.dx; h.y += h.dy; if(Math.hypot((player.x+20) - h.x, (player.y+20) - h.y) < 35) death();
+                    let w = walls[0]; if(h.x > w.x && h.x < w.x+w.w && h.y > w.y && h.y < w.y+w.h) { w.x = -1000; hazards.splice(i, 1); } } }); break;
+                case 19: items.forEach(it => { if (it.forP1 && Math.hypot((player.x+20) - (it.x+30), (player.y+20) - (it.y+30)) < 50) state.p1R = true; if (it.forP2 && Math.hypot((player2.x+20) - (it.x+30), (player2.y+20) - (it.y+30)) < 50) state.p2R = true; });
+                    if(state.p1R && state.p2R) showWin(); break;
+                case 20: 
+                    if (state.timer > 0) {
+                        state.timer--; let boss = hazards[0];
+                        boss.x = (canvas.width/2 - 75) + Math.sin(frameCount * 0.05) * 80; 
+                        if (frameCount % 30 === 0) {
+                            for(let i=-1; i<=1; i++) { hazards.push({x: boss.x + 75, y: boss.y + 100, s: 20, isBullet: true, dx: i * 4, dy: 5}); }
+                        }
+                        if (state.timer === 0) { hazards = []; candle.active = true; }
+                    }
+                    hazards.forEach(h => { if (h.isBullet) { h.x += h.dx; h.y += h.dy; if (Math.hypot((player.x+20) - h.x, (player.y+20) - h.y) < 35) death(); } });
+                    break;
+                case 21:
+                    state.windTimer--;
+                    if (state.windTimer <= 0) { state.wind = !state.wind; state.windTimer = state.wind ? 120 : 150; }
+                    if (state.wind) {
+                        let safe = false;
+                        walls.forEach(w => { if (w.isSafeZone && player.x + player.size > w.x && player.x < w.x + w.w && player.y > w.y) safe = true; });
+                        if (!safe) player.y += 6; 
+                    }
+                    break;
+                case 22: 
+                    if (state.cakeSpawned) {
+                        let cake = items[0];
+                        if (player.x < cake.x + cake.w && player.x + player.size > cake.x && player.y < cake.y + cake.h && player.y + player.size > cake.y) {
+                            showWin();
+                        }
+                    }
+                    break;
+            }
+
+            if (candle.active && player.x < candle.x + candle.size && player.x + player.size > candle.x && player.y < candle.y + candle.size && player.y + player.size > candle.y) {
+                if (currentLevel === 22) {
+                    candle.active = false;
+                    state.cakeSpawned = true;
+                    items.push({x: canvas.width/2 - 75, y: 30, w: 150, h: 150, isCake: true});
+                    playSound("collect");
+                } else {
+                    showWin();
+                }
+            }
+        }
+
+        function drawAsset(ctx, name, x, y, size) {
+            let asset = assets.images[name];
+            if (asset && asset.loaded) { ctx.drawImage(asset.img, x, y, size, size); } 
+            else { ctx.fillStyle = asset ? asset.fallback : "#fff"; ctx.fillRect(x, y, size, size); }
+        }
+
+        function drawBackground() {
+            let floorAst = assets.images["floor"];
+            if(floorAst && floorAst.loaded) { let pat = ctx.createPattern(floorAst.img, "repeat"); ctx.fillStyle = pat; ctx.fillRect(0, 0, canvas.width, canvas.height); } 
+            else { ctx.fillStyle = "#1a1a2e"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+            
+            // OPACITY VIGNETTE DITURUNKAN SUPAYA LEBIH TERANG
+            let bgGrad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 50, canvas.width/2, canvas.height/2, canvas.width);
+            bgGrad.addColorStop(0, "rgba(44, 44, 84, 0.0)"); 
+            bgGrad.addColorStop(1, "rgba(10, 10, 20, 0.4)"); 
+            ctx.fillStyle = (currentLevel === 8 && state.isRed) ? "rgba(100, 0, 0, 0.5)" : bgGrad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function draw() {
+            // --- LAYAR KREDIT AKHIR ---
+            if (showCredits) {
+                ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.font = "14px 'Press Start 2P'";
+                ctx.fillText("sekian terima vn 2 lagu", canvas.width/2, canvas.height/2 - 20);
+                ctx.fillStyle = "#e056fd"; ctx.fillText("-vex", canvas.width/2, canvas.height/2 + 20);
+                ctx.textAlign = "left"; return;
+            }
+
+            drawBackground();
+
+            walls.forEach(w => {
+                if (w.isPit) { ctx.fillStyle = "#050510"; ctx.fillRect(w.x, w.y, w.w, w.h); }
+                else if (w.isLava) { ctx.fillStyle = "#eb2f06"; ctx.fillRect(w.x, w.y, w.w, w.h); }
+                else if (w.isSafeZone) { 
+                    ctx.fillStyle = "#4a4a4a"; ctx.fillRect(w.x, w.y, w.w, w.h);
+                    ctx.fillStyle = "#636e72"; ctx.fillRect(w.x+15, w.y+10, w.w-30, w.h-20);
+                }
+                else {
+                    let wallAst = assets.images["wall"];
+                    if (wallAst && wallAst.loaded && !w.isSafe) { ctx.fillStyle = ctx.createPattern(wallAst.img, "repeat"); } 
+                    else { ctx.fillStyle = w.isSafe ? "rgba(58, 58, 90, 0.8)" : "#222"; }
+                    ctx.fillRect(w.x, w.y, w.w, w.h);
+                    if(!w.isSafe && (!wallAst || !wallAst.loaded)) { ctx.strokeStyle = "#e056fd"; ctx.lineWidth = 4; ctx.strokeRect(w.x, w.y, w.w, w.h); }
+                }
+                if (w.hp) { ctx.fillStyle = "white"; ctx.fillText("HP:"+w.hp, w.x+15, w.y+40); }
+            });
+
+            items.forEach(it => {
+                if(it.isCake) { drawAsset(ctx, "cake", it.x, it.y, it.w); return; }
+                if (it.isPlatform) {
+                    ctx.fillStyle = "#5d4037"; ctx.fillRect(it.x, it.y, it.w, it.h);
+                    ctx.fillStyle = "#8d6e63"; for(let i=15; i<it.w; i+=25) ctx.fillRect(it.x + i, it.y, 4, it.h); 
+                    ctx.strokeStyle = "#4e342e"; ctx.lineWidth = 8; ctx.strokeRect(it.x, it.y, it.w, it.h);
+                } else {
+                    if (it.c) ctx.fillStyle = it.c; else if (it.isSwitch) ctx.fillStyle = "#44bd32"; else if (it.isBlock) ctx.fillStyle = "#e58e26"; else ctx.fillStyle = "#aaa";
+                    ctx.fillRect(it.x, it.y, it.w, it.h);
+                }
+            });
+
+            hazards.forEach(h => {
+                if (h.isBoss) {
+                    drawAsset(ctx, "enemy", h.x, h.y, h.w);
+                    ctx.fillStyle = "red"; ctx.fillRect(h.x, h.y - 15, h.w * (state.timer / 500), 10);
+                }
+                else if (h.isEnemy || h.isTurret) { drawAsset(ctx, "enemy", h.x, h.y, h.s || 50); }
+                else if (h.isCar) {
+                    ctx.fillStyle = "#c23616"; ctx.beginPath(); ctx.roundRect(h.x, h.y, h.w, h.h, 10); ctx.fill();
+                    ctx.fillStyle = "#fbc531"; 
+                    if(h.spd > 0) { ctx.fillRect(h.x+h.w-12, h.y+8, 10, 10); ctx.fillRect(h.x+h.w-12, h.y+h.h-18, 10, 10); }
+                    else { ctx.fillRect(h.x+2, h.y+8, 10, 10); ctx.fillRect(h.x+2, h.y+h.h-18, 10, 10); }
+                }
+                else if (h.isChat) {
+                    ctx.fillStyle = "#ff9ff3"; ctx.beginPath(); ctx.arc(h.x+h.s/2, h.y+h.s/2, h.s/2, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.moveTo(h.x+h.s/2, h.y+h.s); ctx.lineTo(h.x+h.s/4, h.y+h.s+10); ctx.lineTo(h.x+h.s/3, h.y+h.s-5); ctx.fill();
+                }
+                else if (h.isRoblox) {
+                    ctx.fillStyle = "#e1b12c"; ctx.fillRect(h.x, h.y, h.s, h.s);
+                    ctx.strokeStyle = "#c23616"; ctx.lineWidth = 5; ctx.strokeRect(h.x, h.y, h.s, h.s);
+                    ctx.fillStyle = "#c23616"; ctx.font = "16px 'Press Start 2P'"; ctx.fillText("OOF", h.x+10, h.y+h.s/2+8);
+                }
+                else if (h.isBullet) {
+                    let grad = ctx.createRadialGradient(h.x, h.y, 2, h.x, h.y, h.s);
+                    grad.addColorStop(0, "#fff"); grad.addColorStop(1, "#eb4d4b");
+                    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(h.x, h.y, h.s, 0, Math.PI*2); ctx.fill();
+                }
+            });
+
+            if (candle.active) {
+                let glow = ctx.createRadialGradient(candle.x+25, candle.y+25, 5, candle.x+25, candle.y+25, 70);
+                glow.addColorStop(0, "rgba(251, 197, 49, 0.6)"); glow.addColorStop(1, "rgba(251, 197, 49, 0)");
+                ctx.fillStyle = glow; ctx.fillRect(candle.x-40, candle.y-40, 130, 130);
+                drawAsset(ctx, "candle", candle.x, candle.y, candle.size);
+            }
+
+            if (currentLevel === 21 && state.wind) {
+                ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+                for (let i = 0; i < 30; i++) { ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 3, 60); }
+            }
+
+            let drawSize = 60; 
+            let offset = (drawSize - player.size) / 2;
+            
+            drawAsset(ctx, currentDir, player.x - offset, player.y - offset, drawSize);
+            
+            if (player2.active) { 
+                ctx.globalAlpha = 0.5; 
+                drawAsset(ctx, "player_front", player2.x - offset, player2.y - offset, drawSize); 
+                ctx.globalAlpha = 1.0; 
+            }
+
+            if (currentLevel === 3 || currentLevel === 16) {
+                let mask = ctx.createRadialGradient(player.x+20, player.y+20, 50, player.x+20, player.y+20, 200);
+                mask.addColorStop(0, "rgba(0,0,0,0)"); mask.addColorStop(1, "rgba(0,0,0,0.98)");
+                ctx.fillStyle = mask; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            ctx.fillStyle = "white"; ctx.font = "12px 'Press Start 2P'"; ctx.fillText(`Lilin: ${currentLevel}/22`, 15, 30);
+            if(state.timer) { ctx.fillStyle = "#fbc531"; ctx.fillText(`Timer: ${Math.ceil(state.timer/60)}`, 15, 55); }
+        }
+
+        function loop() { update(); draw(); requestAnimationFrame(loop); }
+    </script>
+</body>
+</html>
